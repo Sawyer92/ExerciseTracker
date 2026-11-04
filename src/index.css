@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-display: 'Outfit', system-ui, sans-serif;
+
+  --color-forest-950: #0c1c0c;
+  --color-forest-900: #132a13;
+  --color-forest-800: #234120;
+  --color-forest-700: #31572c;
+  --color-forest-600: #4f772d;
+  --color-forest-500: #6f9643;
+  --color-forest-400: #90a955;
+  --color-forest-300: #b8cc7f;
+  --color-forest-200: #d8e5ab;
+  --color-forest-100: #ecf39e;
+  --color-forest-50: #f7faeb;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #f8faf7;
+  color: #132a13;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Custom smooth scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #d4e0ce;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #90a955;
+}
+
+/* Safe area padding utilities for mobile preview */
+.safe-top {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+

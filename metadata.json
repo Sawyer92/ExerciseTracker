@@ -1,0 +1,6 @@
+{
+  "name": "FitTrack - Scheda Palestra",
+  "description": "App crossplatform per la gestione della scheda di palestra, catalogo esercizi con gif e immagini, auto-salvataggio serie, calendario e profilo utente.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
