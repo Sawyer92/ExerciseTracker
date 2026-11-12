@@ -3,7 +3,9 @@ import {
   CompletedWorkoutLog,
   UserProfile,
   Exercise,
-  WorkoutSet
+  WorkoutSet,
+  WorkoutExercise,
+  LiveSessionState
 } from '../types';
 import {
   STARTER_ROUTINES,
@@ -176,19 +178,7 @@ export function deleteWorkoutLog(id: string): void {
 }
 
 // ----------------- AUTO-SAVE SET FOR WORKOUT SESSION -----------------
-export interface LiveSessionState {
-  routineId: string;
-  dayId: string;
-  date: string;
-  startTime: string;
-  exercises: {
-    exerciseId: string;
-    exerciseName: string;
-    exerciseCategory: string;
-    sets: WorkoutSet[];
-    notes?: string;
-  }[];
-}
+export type { LiveSessionState };
 
 export function getActiveSessionCache(): LiveSessionState | null {
   return safeGet<LiveSessionState | null>(STORAGE_KEYS.ACTIVE_SESSION_CACHE, null);
@@ -196,10 +186,20 @@ export function getActiveSessionCache(): LiveSessionState | null {
 
 export function saveActiveSessionCache(session: LiveSessionState | null): void {
   if (!session) {
-    localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION_CACHE);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_SESSION_CACHE);
+      window.dispatchEvent(new CustomEvent('fittrack_session_updated', { detail: null }));
+    }
   } else {
     safeSet(STORAGE_KEYS.ACTIVE_SESSION_CACHE, session);
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('fittrack_session_updated', { detail: session }));
+    }
   }
+}
+
+export function clearActiveSessionCache(): void {
+  saveActiveSessionCache(null);
 }
 
 // Find previous performance for exercise (weight and reps)

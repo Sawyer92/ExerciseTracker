@@ -6,7 +6,8 @@ import {
   saveRoutine,
   deleteRoutine,
   setActiveRoutineId,
-  getActiveRoutine
+  getActiveRoutine,
+  getActiveSessionCache,
 } from '../utils/storage';
 import { ExercisePickerModal } from '../components/ExercisePickerModal';
 import { ExerciseDetailModal } from '../components/ExerciseDetailModal';
@@ -18,10 +19,7 @@ import {
   Check,
   Dumbbell,
   Copy,
-  ChevronDown,
-  ChevronUp,
-  Sparkles,
-  Info
+  Play
 } from 'lucide-react';
 
 interface RoutineManagementPageProps {
@@ -611,26 +609,36 @@ export const RoutineManagementPage: React.FC<RoutineManagementPageProps> = ({
                 0
               );
 
+              const runningSession = getActiveSessionCache();
+              const isSessionRunningThisRoutine = runningSession?.routineId === routine.id;
+
               return (
                 <div
                   key={routine.id}
                   className={`bg-white rounded-2xl border p-4 shadow-xs transition ${
-                    isActive
+                    isSessionRunningThisRoutine
+                      ? 'border-[#31572c] ring-2 ring-[#31572c]/30 bg-[#f7faf5]'
+                      : isActive
                       ? 'border-[#31572c] ring-2 ring-[#ecf39e]/50'
                       : 'border-[#e2ece0] hover:border-[#ccd9c7]'
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3 mb-2">
                     <div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h3 className="text-base font-bold text-[#132a13]">
                           {routine.name}
                         </h3>
-                        {isActive && (
-                          <span className="text-[10px] font-bold text-[#31572c] bg-[#ecf39e] px-2 py-0.5 rounded-full">
-                            Attiva
+                        {isSessionRunningThisRoutine ? (
+                          <span className="text-[10px] font-bold text-white bg-[#31572c] px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#ecf39e] animate-ping" />
+                            In Esecuzione
                           </span>
-                        )}
+                        ) : isActive ? (
+                          <span className="text-[10px] font-bold text-[#31572c] bg-[#ecf39e] px-2 py-0.5 rounded-full">
+                            Predefinita
+                          </span>
+                        ) : null}
                       </div>
                       <p className="text-xs text-neutral-500 mt-0.5 line-clamp-1">
                         {routine.description}
@@ -676,13 +684,23 @@ export const RoutineManagementPage: React.FC<RoutineManagementPageProps> = ({
                     </span>
 
                     <div className="flex items-center gap-2">
-                      {!isActive && (
+                      {isSessionRunningThisRoutine && (
+                        <button
+                          type="button"
+                          onClick={() => onNavigateToTab('scheda')}
+                          className="px-3 py-1.5 rounded-xl bg-[#ecf39e] hover:bg-[#dfea8b] text-[#132a13] font-bold text-xs shadow-xs transition flex items-center gap-1"
+                        >
+                          <Play className="w-3.5 h-3.5 fill-[#132a13]" /> Riprendi Scheda
+                        </button>
+                      )}
+
+                      {!isActive && !isSessionRunningThisRoutine && (
                         <button
                           type="button"
                           onClick={() => handleSelectActive(routine.id)}
                           className="px-3 py-1.5 rounded-xl text-xs font-bold text-[#31572c] hover:bg-[#f0f5ec] transition"
                         >
-                          Rendi Attiva
+                          Rendi Predefinita
                         </button>
                       )}
 

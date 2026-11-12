@@ -7,11 +7,13 @@ interface NavigationProps {
   activeTab: TabType;
   onTabChange: (tab: TabType) => void;
   unreadCount?: number;
+  hasActiveWorkout?: boolean;
 }
 
 export const Navigation: React.FC<NavigationProps> = ({
   activeTab,
   onTabChange,
+  hasActiveWorkout = false,
 }) => {
   const tabs = [
     { id: 'scheda', label: 'Scheda', icon: Dumbbell },
@@ -27,6 +29,7 @@ export const Navigation: React.FC<NavigationProps> = ({
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
+          const isSchedaActiveWorkout = tab.id === 'scheda' && hasActiveWorkout;
 
           return (
             <button
@@ -40,16 +43,25 @@ export const Navigation: React.FC<NavigationProps> = ({
               }`}
             >
               <div
-                className={`p-1.5 rounded-xl transition-all ${
+                className={`p-1.5 rounded-xl transition-all relative ${
                   isActive
                     ? 'bg-[#ecf39e] text-[#132a13] scale-105 shadow-xs'
                     : 'group-hover:bg-[#f1f5ec]'
                 }`}
               >
                 <Icon className="w-5 h-5 stroke-[2.2]" />
+                {isSchedaActiveWorkout && (
+                  <span className="absolute -top-1 -right-1 flex h-2.5 w-2.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75"></span>
+                    <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#31572c]"></span>
+                  </span>
+                )}
               </div>
-              <span className={`text-[11px] mt-0.5 tracking-tight ${isActive ? 'font-bold text-[#132a13]' : 'font-medium'}`}>
+              <span className={`text-[11px] mt-0.5 tracking-tight flex items-center gap-1 ${isActive ? 'font-bold text-[#132a13]' : 'font-medium'}`}>
                 {tab.label}
+                {isSchedaActiveWorkout && !isActive && (
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#31572c] animate-pulse"></span>
+                )}
               </span>
             </button>
           );

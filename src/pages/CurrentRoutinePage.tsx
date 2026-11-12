@@ -6,7 +6,8 @@ import {
   WorkoutSet,
   CompletedWorkoutLog,
   Exercise,
-  UserProfile
+  UserProfile,
+  LiveSessionState,
 } from '../types';
 import {
   getRoutines,
@@ -15,7 +16,10 @@ import {
   saveRoutine,
   saveWorkoutLog,
   getLastPerformanceForExercise,
-  getUserProfile
+  getUserProfile,
+  getActiveSessionCache,
+  saveActiveSessionCache,
+  clearActiveSessionCache,
 } from '../utils/storage';
 import { SetRow } from '../components/SetRow';
 import { RestTimerModal } from '../components/RestTimerModal';
@@ -38,7 +42,9 @@ import {
   Sparkles,
   Check,
   RotateCcw,
-  UserPlus
+  UserPlus,
+  X,
+  Zap,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -58,6 +64,10 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
   const [isWorkoutActive, setIsWorkoutActive] = useState(false);
   const [workoutStartTime, setWorkoutStartTime] = useState<Date | null>(null);
   const [workoutElapsedSeconds, setWorkoutElapsedSeconds] = useState(0);
+  const [pendingSwitchRoutine, setPendingSwitchRoutine] = useState<{
+    routine: WorkoutRoutine;
+    dayIdx: number;
+  } | null>(null);
 
   // Modals state
   const [restTimerOpen, setRestTimerOpen] = useState(false);
@@ -72,10 +82,30 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
   // User Profile
   const [userProfile, setUserProfile] = useState<UserProfile | null>(() => getUserProfile());
 
-  // Load routines on mount
+  // Load routines on mount and sync active workout session
   const refreshRoutines = () => {
     const list = getRoutines();
     setRoutines(list);
+
+    // Check if an active session exists in localStorage
+    const cachedSession = getActiveSessionCache();
+    if (cachedSession) {
+      const match = list.find((r) => r.id === cachedSession.routineId);
+      if (match) {
+        setActiveRoutine(match);
+        const dayIdx = Math.max(0, Math.min(match.days.length - 1, cachedSession.dayIndex ?? 0));
+        setSelectedDayIndex(dayIdx);
+        setIsWorkoutActive(true);
+        const start = new Date(cachedSession.startTime);
+        setWorkoutStartTime(start);
+        setWorkoutElapsedSeconds(
+          Math.max(0, Math.floor((Date.now() - start.getTime()) / 1000))
+        );
+        setUserProfile(getUserProfile());
+        return;
+      }
+    }
+
     const active = getActiveRoutine();
     if (active) {
       setActiveRoutine(active);
@@ -89,6 +119,20 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
 
   useEffect(() => {
     refreshRoutines();
+
+    const handleSessionUpdate = () => {
+      const cached = getActiveSessionCache();
+      if (!cached) {
+        setIsWorkoutActive(false);
+        setWorkoutStartTime(null);
+        setWorkoutElapsedSeconds(0);
+      }
+    };
+
+    window.addEventListener('fittrack_session_updated', handleSessionUpdate);
+    return () => {
+      window.removeEventListener('fittrack_session_updated', handleSessionUpdate);
+    };
   }, []);
 
   // Workout duration counter
@@ -126,17 +170,45 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
 
   // Launch a specific routine and day
   const handleStartScheda = (routine: WorkoutRoutine, dayIdx: number) => {
+    // If the selected routine and day is ALREADY in execution, simply resume it
+    if (isWorkoutActive && activeRoutine?.id === routine.id && selectedDayIndex === dayIdx) {
+      setViewMode('workout');
+      return;
+    }
+
+    // If another workout is already in progress, ask for confirmation
+    if (isWorkoutActive && (activeRoutine?.id !== routine.id || selectedDayIndex !== dayIdx)) {
+      setPendingSwitchRoutine({ routine, dayIdx });
+      return;
+    }
+
+    startNewWorkoutSession(routine, dayIdx);
+  };
+
+  const startNewWorkoutSession = (routine: WorkoutRoutine, dayIdx: number) => {
     setActiveRoutine(routine);
     setActiveRoutineId(routine.id);
     setSelectedDayIndex(dayIdx);
     setViewMode('workout');
 
-    // Automatically start workout timer
-    if (!isWorkoutActive) {
-      setIsWorkoutActive(true);
-      setWorkoutStartTime(new Date());
-      setWorkoutElapsedSeconds(0);
-    }
+    const now = new Date();
+    setIsWorkoutActive(true);
+    setWorkoutStartTime(now);
+    setWorkoutElapsedSeconds(0);
+
+    const targetDay = routine.days[dayIdx];
+    const newSession: LiveSessionState = {
+      routineId: routine.id,
+      routineName: routine.name,
+      dayId: targetDay?.id || `day-${dayIdx}`,
+      dayIndex: dayIdx,
+      dayName: targetDay?.name || `Giorno ${dayIdx + 1}`,
+      date: now.toISOString().split('T')[0],
+      startTime: now.toISOString(),
+      exercises: JSON.parse(JSON.stringify(targetDay?.exercises || [])),
+      notes: targetDay?.notes || '',
+    };
+    saveActiveSessionCache(newSession);
   };
 
   // Update a single set in an exercise (Auto-save trigger)
@@ -159,6 +231,22 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
     };
 
     handleUpdateRoutine(updatedRoutine);
+
+    // Synchronize changes to active session cache
+    if (isWorkoutActive && workoutStartTime) {
+      const session: LiveSessionState = {
+        routineId: activeRoutine.id,
+        routineName: activeRoutine.name,
+        dayId: currentDay.id,
+        dayIndex: selectedDayIndex,
+        dayName: currentDay.name,
+        date: new Date().toISOString().split('T')[0],
+        startTime: workoutStartTime.toISOString(),
+        exercises: newExercises,
+        notes: currentDay.notes,
+      };
+      saveActiveSessionCache(session);
+    }
   };
 
   // Add a new set to an exercise
@@ -185,7 +273,22 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
     };
     newDays[selectedDayIndex] = { ...currentDay, exercises: newExercises };
 
-    handleUpdateRoutine({ ...activeRoutine, days: newDays });
+    const updatedRoutine = { ...activeRoutine, days: newDays };
+    handleUpdateRoutine(updatedRoutine);
+
+    if (isWorkoutActive && workoutStartTime) {
+      saveActiveSessionCache({
+        routineId: activeRoutine.id,
+        routineName: activeRoutine.name,
+        dayId: currentDay.id,
+        dayIndex: selectedDayIndex,
+        dayName: currentDay.name,
+        date: new Date().toISOString().split('T')[0],
+        startTime: workoutStartTime.toISOString(),
+        exercises: newExercises,
+        notes: currentDay.notes,
+      });
+    }
   };
 
   // Remove a set from an exercise
@@ -201,7 +304,22 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
     newExercises[exerciseIndex] = { ...targetExercise, sets: newSets };
     newDays[selectedDayIndex] = { ...currentDay, exercises: newExercises };
 
-    handleUpdateRoutine({ ...activeRoutine, days: newDays });
+    const updatedRoutine = { ...activeRoutine, days: newDays };
+    handleUpdateRoutine(updatedRoutine);
+
+    if (isWorkoutActive && workoutStartTime) {
+      saveActiveSessionCache({
+        routineId: activeRoutine.id,
+        routineName: activeRoutine.name,
+        dayId: currentDay.id,
+        dayIndex: selectedDayIndex,
+        dayName: currentDay.name,
+        date: new Date().toISOString().split('T')[0],
+        startTime: workoutStartTime.toISOString(),
+        exercises: newExercises,
+        notes: currentDay.notes,
+      });
+    }
   };
 
   // Add selected exercise from picker to the current day
@@ -228,7 +346,22 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
     const newExercises = [...currentDay.exercises, newWorkoutExercise];
     newDays[selectedDayIndex] = { ...currentDay, exercises: newExercises };
 
-    handleUpdateRoutine({ ...activeRoutine, days: newDays });
+    const updatedRoutine = { ...activeRoutine, days: newDays };
+    handleUpdateRoutine(updatedRoutine);
+
+    if (isWorkoutActive && workoutStartTime) {
+      saveActiveSessionCache({
+        routineId: activeRoutine.id,
+        routineName: activeRoutine.name,
+        dayId: currentDay.id,
+        dayIndex: selectedDayIndex,
+        dayName: currentDay.name,
+        date: new Date().toISOString().split('T')[0],
+        startTime: workoutStartTime.toISOString(),
+        exercises: newExercises,
+        notes: currentDay.notes,
+      });
+    }
   };
 
   // Remove exercise from day
@@ -237,14 +370,66 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
     const newDays = [...activeRoutine.days];
     const newExercises = currentDay.exercises.filter((_, idx) => idx !== exerciseIndex);
     newDays[selectedDayIndex] = { ...currentDay, exercises: newExercises };
-    handleUpdateRoutine({ ...activeRoutine, days: newDays });
+
+    const updatedRoutine = { ...activeRoutine, days: newDays };
+    handleUpdateRoutine(updatedRoutine);
+
+    if (isWorkoutActive && workoutStartTime) {
+      saveActiveSessionCache({
+        routineId: activeRoutine.id,
+        routineName: activeRoutine.name,
+        dayId: currentDay.id,
+        dayIndex: selectedDayIndex,
+        dayName: currentDay.name,
+        date: new Date().toISOString().split('T')[0],
+        startTime: workoutStartTime.toISOString(),
+        exercises: newExercises,
+        notes: currentDay.notes,
+      });
+    }
   };
 
   // Start active workout manually
   const handleStartWorkout = () => {
+    if (!activeRoutine || !currentDay) return;
+    const now = new Date();
     setIsWorkoutActive(true);
-    setWorkoutStartTime(new Date());
+    setWorkoutStartTime(now);
     setWorkoutElapsedSeconds(0);
+
+    const newSession: LiveSessionState = {
+      routineId: activeRoutine.id,
+      routineName: activeRoutine.name,
+      dayId: currentDay.id,
+      dayIndex: selectedDayIndex,
+      dayName: currentDay.name,
+      date: now.toISOString().split('T')[0],
+      startTime: now.toISOString(),
+      exercises: JSON.parse(JSON.stringify(currentDay.exercises || [])),
+      notes: currentDay.notes,
+    };
+    saveActiveSessionCache(newSession);
+  };
+
+  // Cancel workout with confirmation
+  const handleCancelWorkout = () => {
+    if (window.confirm("Sei sicuro di voler annullare l'allenamento in corso? I progressi della sessione attuale verranno cancellati.")) {
+      clearActiveSessionCache();
+      // Reset completed flags for this session
+      if (activeRoutine && currentDay) {
+        const resetExercises = currentDay.exercises.map((ex) => ({
+          ...ex,
+          sets: ex.sets.map((s) => ({ ...s, completed: false })),
+        }));
+        const newDays = [...activeRoutine.days];
+        newDays[selectedDayIndex] = { ...currentDay, exercises: resetExercises };
+        handleUpdateRoutine({ ...activeRoutine, days: newDays });
+      }
+      setIsWorkoutActive(false);
+      setWorkoutStartTime(null);
+      setWorkoutElapsedSeconds(0);
+      setViewMode('selection');
+    }
   };
 
   // Finish active workout & historicize into logs
@@ -309,6 +494,7 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
     newDays[selectedDayIndex] = { ...currentDay, exercises: resetExercises };
     handleUpdateRoutine({ ...activeRoutine, days: newDays });
 
+    clearActiveSessionCache();
     setIsWorkoutActive(false);
     setWorkoutStartTime(null);
     setWorkoutElapsedSeconds(0);
@@ -442,37 +628,100 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
             </div>
           )}
 
-          {/* Active Workout In Progress Banner */}
+          {/* Active Workout In Progress Hero Card (Schermata Iniziale) */}
           {isWorkoutActive && activeRoutine && currentDay && (
-            <div className="bg-[#ecf39e]/60 border border-[#cbe07d] rounded-3xl p-4 sm:p-5 shadow-xs flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-2xl bg-[#31572c] text-white flex items-center justify-center shrink-0">
-                  <Timer className="w-5 h-5 animate-pulse" />
-                </div>
-                <div>
+            <div className="bg-gradient-to-br from-[#132a13] via-[#1c381c] to-[#254d24] text-white rounded-3xl p-5 sm:p-6 shadow-md border-2 border-[#b8cb67] relative overflow-hidden animate-in fade-in">
+              {/* Subtle ambient light */}
+              <div className="absolute -top-10 -right-10 w-44 h-44 bg-[#ecf39e]/15 rounded-full blur-2xl pointer-events-none" />
+
+              <div className="relative z-10">
+                {/* Top Header: Badge + Live Timer */}
+                <div className="flex items-center justify-between gap-3 mb-2.5 flex-wrap">
                   <div className="flex items-center gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#31572c]">
-                      Allenamento in corso
+                    <span className="relative flex h-2.5 w-2.5">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#ecf39e] opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-[#ecf39e]"></span>
                     </span>
-                    <span className="text-xs font-mono font-bold bg-[#31572c] text-white px-2 py-0.5 rounded-full">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#ecf39e] font-mono">
+                      Scheda in Esecuzione Attiva
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 bg-black/30 backdrop-blur-xs px-3 py-1 rounded-full border border-white/10">
+                    <Timer className="w-3.5 h-3.5 text-[#ecf39e] animate-pulse" />
+                    <span className="text-xs font-mono font-bold text-white tabular-nums tracking-wide">
                       {formatElapsedTime(workoutElapsedSeconds)}
                     </span>
                   </div>
-                  <p className="text-xs font-semibold text-[#132a13] mt-0.5">
-                    {activeRoutine.name} • {currentDay.name} ({completedSetsCount}/{totalSetsCount} serie completate)
-                  </p>
                 </div>
-              </div>
 
-              <div className="flex items-center gap-2 w-full sm:w-auto">
-                <button
-                  type="button"
-                  onClick={() => setViewMode('workout')}
-                  className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-[#31572c] hover:bg-[#132a13] text-white font-bold text-xs shadow-xs transition flex items-center justify-center gap-1.5"
-                >
-                  <span>Riprendi Esercizi</span>
-                  <ChevronRight className="w-4 h-4" />
-                </button>
+                {/* Routine Title & Day */}
+                <h2 className="text-lg sm:text-xl font-bold text-white tracking-tight leading-snug">
+                  {activeRoutine.name}
+                </h2>
+                <p className="text-xs text-[#d8e6d2] mt-0.5 font-medium">
+                  {currentDay.name}
+                </p>
+
+                {/* Progress Box */}
+                <div className="mt-3.5 bg-white/10 rounded-2xl p-3 border border-white/10 space-y-2">
+                  <div className="flex items-center justify-between text-xs text-white">
+                    <span className="font-semibold flex items-center gap-1.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#ecf39e]" />
+                      <span>{completedSetsCount} di {totalSetsCount} serie completate</span>
+                    </span>
+                    <span className="font-mono font-bold text-[#ecf39e]">
+                      {Math.round(progressPercent)}%
+                    </span>
+                  </div>
+
+                  <div className="w-full bg-black/30 h-2 rounded-full overflow-hidden">
+                    <div
+                      className="bg-[#ecf39e] h-full rounded-full transition-all duration-300"
+                      style={{ width: `${progressPercent}%` }}
+                    />
+                  </div>
+
+                  <div className="text-[11px] text-white/75 pt-1 border-t border-white/10 flex items-center justify-between">
+                    <span>{currentDay.exercises.length} esercizi in programma</span>
+                    {completedSetsCount === totalSetsCount && totalSetsCount > 0 ? (
+                      <span className="text-[#ecf39e] font-bold">Sessione pronta da completare!</span>
+                    ) : (
+                      <span>Carichi e ripetizioni sincronizzati</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* Actions */}
+                <div className="mt-4 pt-3 border-t border-white/10 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('workout')}
+                    className="py-3 px-5 rounded-2xl bg-[#ecf39e] hover:bg-[#dfea8b] text-[#132a13] font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition active:scale-[0.98]"
+                  >
+                    <Play className="w-4 h-4 fill-[#132a13]" />
+                    <span>Riprendi Scheda in Corso</span>
+                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFinishWorkout}
+                      className="flex-1 sm:flex-none py-2.5 px-3.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-bold text-xs flex items-center justify-center gap-1.5 transition border border-white/15"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-[#ecf39e]" />
+                      <span>Termina e Salva</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleCancelWorkout}
+                      className="py-2.5 px-3 rounded-xl text-white/60 hover:text-red-300 hover:bg-white/10 text-xs font-semibold transition"
+                    >
+                      Annulla
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -561,15 +810,37 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
                     key={`${routine.id}-${day.id || dayIndex}`}
                     className={`rounded-3xl border transition-all duration-200 bg-white p-4 sm:p-5 flex flex-col justify-between shadow-xs hover:shadow-md ${
                       isCurrentActiveDay
-                        ? 'border-[#31572c] ring-2 ring-[#31572c]/20 bg-[#fbfdf9]'
+                        ? 'border-2 border-[#31572c] ring-2 ring-[#31572c]/20 bg-[#f7faf5] shadow-sm'
                         : 'border-[#dde7db] hover:border-[#31572c]/60'
                     }`}
                   >
+                    {/* Active In Progress Indicator inside Card */}
+                    {isCurrentActiveDay && (
+                      <div className="mb-2.5 bg-[#ecf39e]/70 border border-[#cbe07d] rounded-2xl px-3 py-1.5 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className="relative flex h-2 w-2">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#31572c] opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-[#31572c]"></span>
+                          </span>
+                          <span className="text-[11px] font-bold text-[#132a13]">
+                            Scheda in esecuzione attiva adesso
+                          </span>
+                        </div>
+                        <span className="text-[11px] font-mono font-bold text-[#31572c]">
+                          {formatElapsedTime(workoutElapsedSeconds)} • {completedSetsCount}/{totalSetsCount} serie
+                        </span>
+                      </div>
+                    )}
+
                     {/* Intestazione Riquadro */}
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-[#31572c] bg-[#eaf2e7] px-2.5 py-1 rounded-full">
+                          <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full ${
+                            isCurrentActiveDay
+                              ? 'text-white bg-[#31572c]'
+                              : 'text-[#31572c] bg-[#eaf2e7]'
+                          }`}>
                             {routine.name}
                           </span>
                           <span className="text-[10px] font-bold text-neutral-500 bg-[#f4f6f3] px-2 py-0.5 rounded-lg">
@@ -656,16 +927,27 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
                       </div>
                     </div>
 
-                    {/* Bottone di Avvio Scheda Tondeggiante */}
+                    {/* Bottone di Avvio / Ripresa Scheda */}
                     <div className="mt-4 pt-3 border-t border-[#f1f6ef] flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => handleStartScheda(routine, dayIndex)}
-                        className="flex-1 py-3 px-4 rounded-2xl bg-[#31572c] hover:bg-[#132a13] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs hover:shadow transition-all"
-                      >
-                        <Play className="w-4 h-4 fill-white" />
-                        <span>Avvia Questa Scheda</span>
-                      </button>
+                      {isCurrentActiveDay ? (
+                        <button
+                          type="button"
+                          onClick={() => setViewMode('workout')}
+                          className="flex-1 py-3 px-4 rounded-2xl bg-[#132a13] hover:bg-[#31572c] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-sm transition-all"
+                        >
+                          <Play className="w-4 h-4 fill-white" />
+                          <span>Riprendi Scheda in Corso</span>
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleStartScheda(routine, dayIndex)}
+                          className="flex-1 py-3 px-4 rounded-2xl bg-[#31572c] hover:bg-[#132a13] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-xs hover:shadow transition-all"
+                        >
+                          <Play className="w-4 h-4 fill-white" />
+                          <span>Avvia Questa Scheda</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 );
@@ -685,6 +967,64 @@ export const CurrentRoutinePage: React.FC<CurrentRoutinePageProps> = ({
                 <p className="text-xs text-neutral-500 max-w-xs">
                   Aggiungi nuovi giorni di allenamento, imposta serie e ripetizioni a tuo piacimento.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* Modal Conferma Cambio Scheda in Corso */}
+          {pendingSwitchRoutine && (
+            <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+              <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-xl border border-[#dde7db] animate-in fade-in zoom-in-95">
+                <div className="w-12 h-12 rounded-2xl bg-[#ecf39e] text-[#132a13] flex items-center justify-center mb-3">
+                  <AlertCircle className="w-6 h-6 text-[#31572c]" />
+                </div>
+                <h3 className="text-base font-bold text-[#132a13] mb-1">
+                  Scheda già in esecuzione
+                </h3>
+                <p className="text-xs text-neutral-600 mb-4 leading-relaxed">
+                  Hai già una scheda attiva in questo momento:
+                  <br />
+                  <strong className="text-[#31572c]">
+                    {activeRoutine?.name} • {currentDay?.name}
+                  </strong>{' '}
+                  (avviata da {formatElapsedTime(workoutElapsedSeconds)}).
+                  <br />
+                  Cosa desideri fare?
+                </p>
+
+                <div className="space-y-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPendingSwitchRoutine(null);
+                      setViewMode('workout');
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#31572c] hover:bg-[#132a13] text-white font-bold text-xs flex items-center justify-center gap-2 transition"
+                  >
+                    <Play className="w-3.5 h-3.5 fill-white" />
+                    <span>Continua Scheda già Attiva</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const next = pendingSwitchRoutine;
+                      setPendingSwitchRoutine(null);
+                      startNewWorkoutSession(next.routine, next.dayIdx);
+                    }}
+                    className="w-full py-2.5 px-4 rounded-xl bg-[#f0f5ec] hover:bg-[#e2edd9] text-[#31572c] font-bold text-xs flex items-center justify-center gap-1.5 transition"
+                  >
+                    <span>Sostituisci ed Avvia Nuova Scheda</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setPendingSwitchRoutine(null)}
+                    className="w-full py-2 text-xs text-neutral-500 font-semibold hover:text-neutral-800 transition"
+                  >
+                    Annulla
+                  </button>
+                </div>
               </div>
             </div>
           )}

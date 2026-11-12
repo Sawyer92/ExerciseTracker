@@ -8,23 +8,7 @@ export type MuscleGroup =
   | 'Addominali'
   | 'Glutei'
   | 'Polpacci'
-  | 'Cardio'
-  | "Flessori dell'anca"
-  | 'Obliqui'
-  | 'Femorali'
-  | 'Quadricipiti'
-  | 'Avambracci'
-  | 'Lombare'
-  | 'Trapezio'
-  | 'Caviglie'
-  | 'Zona lombare'
-  | 'Deltoidi'
-  | 'Core'
-  | 'Polsi' 
-  | 'Mani'
-  | 'Romboidi'
-  | 'Schiena'
-  | 'Adduttori';
+  | 'Cardio';
 
 export type EquipmentType =
   | 'Bilanciere'
@@ -51,6 +35,7 @@ export interface Exercise {
   instructionStepsIt?: string[];
   image: string;
   gifUrl: string;
+  isCustom?: boolean;
 }
 
 export interface WorkoutSet {
@@ -146,3 +131,15 @@ export interface UserProfile {
 }
 
 export type DeviceViewMode = 'responsive' | 'iphone' | 'android' | 'desktop';
+
+export interface LiveSessionState {
+  routineId: string;
+  routineName: string;
+  dayId: string;
+  dayIndex: number;
+  dayName: string;
+  date: string;
+  startTime: string; // ISO string
+  exercises: WorkoutExercise[];
+  notes?: string;
+}
