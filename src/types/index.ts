@@ -8,7 +8,23 @@ export type MuscleGroup =
   | 'Addominali'
   | 'Glutei'
   | 'Polpacci'
-  | 'Cardio';
+  | 'Cardio'
+  | "Flessori dell'anca"
+  | 'Obliqui'
+  | 'Femorali'
+  | 'Quadricipiti'
+  | 'Avambracci'
+  | 'Lombare'
+  | 'Trapezio'
+  | 'Caviglie'
+  | 'Zona lombare'
+  | 'Deltoidi'
+  | 'Core'
+  | 'Polsi' 
+  | 'Mani'
+  | 'Romboidi'
+  | 'Schiena'
+  | 'Adduttori';
 
 export type EquipmentType =
   | 'Bilanciere'
@@ -35,7 +51,6 @@ export interface Exercise {
   instructionStepsIt?: string[];
   image: string;
   gifUrl: string;
-  isCustom?: boolean;
 }
 
 export interface WorkoutSet {

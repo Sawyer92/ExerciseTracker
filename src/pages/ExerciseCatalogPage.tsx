@@ -30,6 +30,22 @@ const MUSCLE_GROUPS: (MuscleGroup | 'Tutti')[] = [
   'Addominali',
   'Glutei',
   'Polpacci',
+  'Cardio',
+   "Flessori dell'anca",
+   'Obliqui',
+   'Femorali',
+   'Quadricipiti',
+   'Avambracci',
+   'Lombare',
+   'Trapezio',
+   'Caviglie',
+   'Zona lombare',
+   'Deltoidi',
+   'Core',
+   'Polsi', 
+   'Mani',
+   'Romboidi',
+   'Schiena',
 ];
 
 export const ExerciseCatalogPage: React.FC = () => {
@@ -85,8 +101,7 @@ export const ExerciseCatalogPage: React.FC = () => {
       target: customMuscle,
       instructionsIt: customInstructions.trim() || 'Esegui il movimento con controllo e postura corretta.',
       image: customMediaUrl.trim() || 'https://raw.githubusercontent.com/hasaneyldrm/exercises-dataset/main/images/0025-EIeI8Vf.jpg',
-      gifUrl: customMediaUrl.trim() || '',
-      isCustom: true,
+      gifUrl: customMediaUrl.trim() || ''
     };
 
     saveCustomExercise(newEx);
@@ -169,7 +184,7 @@ export const ExerciseCatalogPage: React.FC = () => {
         </div>
 
         {/* Muscle Groups Horizontal Filter */}
-        <div className="flex items-center gap-1.5 overflow-x-auto pt-2.5 pb-1 scrollbar-none">
+        <div className="flex items-center gap-1.5 overflow-x-auto pt-2.5 pb-1">
           {MUSCLE_GROUPS.map((muscle) => (
             <button
               key={muscle}
